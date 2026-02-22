@@ -475,3 +475,25 @@ Save Event
                     │   system_instruction + contents     │
                     └────────────────────────────────────┘
 ```
+
+---
+
+## 8. Architectural Evaluation (Pros & Cons)
+
+Any architecture is a set of trade-offs. Here is an honest evaluation of the Substrate context engine:
+
+### ✅ Pros (Why this works well)
+
+1. **Zero Infrastructure Overhead:** By using embedded SQLite and local ChromaDB, the agent runs entirely self-contained. There are no databases to spin up, no Docker containers, and no cloud dependencies other than the LLM API itself.
+2. **True "Long-Term" Feel:** Separating chronological from semantic memory solves the classic LLM window problem. The model remembers what you said 30 seconds ago *and* applies related insights from 3 months ago without manual prompting.
+3. **High Signal-to-Noise Ratio:** The Critic pipeline and `top_p=0.8` constraints brutally filter out the typical AI "fluff." Users only see audited, structurally sound logic, which builds trust.
+4. **Self-Healing Output:** The single re-generation attempt allows the model to catch its own hallucinations and correct them before the user ever sees them.
+5. **Data Privacy / Ownership:** All interaction history lives strictly on the user's local disk in `~/.substrate/`. 
+
+### ⚠️ Cons (The Trade-offs)
+
+1. **High Latency (No Streaming):** Because the Critic must evaluate the *full* generated response to determine logical integrity, we cannot stream tokens to the terminal. The user waits for the entire Generator call *plus* the Critic call to finish before seeing a single byte of output. If a re-generation is triggered, latency essentially triples.
+2. **Token Cost Inflation:** Every prompt sends the system instructions (~600 tokens), the past 10 messages (~5k tokens), and 2 long-term insights (~2k tokens). This makes every prompt computationally "heavy."
+3. **Semantic Blind Spots:** ChromaDB retrieves by vector similarity. If a user asks about "supply chain logistics," it will retrieve past queries about "shipping routes" (high similarity). But it might miss a past query about "data pipeline bottlenecks" (low textual similarity, but high structural/first-principles similarity).
+4. **Monotonic Storage Growth:** The `~/.substrate/` directory strictly grows over time. There is currently no pruning, TTL (Time To Live), or session archiving mechanism. Over thousands of interactions, ChromaDB embeddings will consume significant disk space.
+5. **Coupled Semantic Context:** Because user inputs and model responses are embedded together as single documents in ChromaDB, the embedding represents the *average* meaning of the interaction. Highly nuanced user prompts might get "watered down" by the larger volume of the model's response text during vector search.
